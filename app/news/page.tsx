@@ -22,13 +22,75 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 // Keyword sets for each tab
 const KEYWORDS: { [key: string]: string[] } = {
-  all: ["UPSC", "India", "Current Affairs", "Parliament", "Supreme Court", "Economy", "Environment", "Science", "Technology"],
-  "current-affairs": ["Current Affairs", "UPSC", "National News", "International News", "Government", "Policy"],
-  prelims: ["UPSC Prelims", "General Studies", "Current Events", "Geography", "History"],
-  "gs-1": ["Indian Society", "History", "Art and Culture", "Geography"],
-  "gs-2": ["Polity", "Governance", "International Relations", "Constitution"],
-  "gs-3": ["Economy", "Environment", "Science and Tech", "Security"],
-  "gs-4": ["Ethics", "Integrity", "Aptitude", "Case Studies"]
+  all: [
+    "UPSC",
+    "Civil Services",
+    "IAS",
+    "Current Affairs",
+    "Indian Government",
+    "Parliament",
+    "Supreme Court",
+    "Economy",
+    "Environment",
+    "Science and Technology",
+    "International Relations",
+    "Social Justice",
+    "Policy",
+    "Reforms"
+  ],
+  "current-affairs": [
+    "UPSC Current Affairs",
+    "National News",
+    "International News",
+    "Government Schemes",
+    "Policy Updates",
+    "Major Events"
+  ],
+  prelims: [
+    "UPSC Prelims",
+    "General Studies",
+    "Current Events",
+    "Geography",
+    "History",
+    "Science and Tech",
+    "Environment"
+  ],
+  "gs-1": [
+    "Indian Society",
+    "Indian History",
+    "Art and Culture",
+    "World History",
+    "Geography of India",
+    "Population Issues",
+    "Urbanization"
+  ],
+  "gs-2": [
+    "Indian Polity",
+    "Governance",
+    "Constitution",
+    "International Relations",
+    "Social Justice",
+    "Welfare Schemes",
+    "Judiciary"
+  ],
+  "gs-3": [
+    "Indian Economy",
+    "Agriculture",
+    "Environment",
+    "Biodiversity",
+    "Science and Technology",
+    "Security",
+    "Disaster Management",
+    "Infrastructure"
+  ],
+  "gs-4": [
+    "Ethics",
+    "Integrity",
+    "Aptitude",
+    "Case Studies",
+    "Moral Thinkers",
+    "Public Administration"
+  ]
 };
 
 function pickRandomKeywords(keywords: string[], count = 3): string[] {
@@ -70,31 +132,51 @@ export default function NewsPage() {
   // Helper to get current keywords
   const getCurrentKeywords = () => pickRandomKeywords(KEYWORDS[activeTab] || KEYWORDS.all, 3)
 
+  // Helper to get date range for last 7 days
+  function getLast7DaysRange() {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(to.getDate() - 7);
+    return {
+      from_date: from.toISOString().slice(0, 10),
+      to_date: to.toISOString().slice(0, 10)
+    };
+  }
+
   // Fetch news, with optional refresh
   const fetchNews = async (forceRefresh = false) => {
     setLoading(true)
     if (forceRefresh) setRefreshing(true)
     const keywords = getCurrentKeywords()
     const q = keywords.join(",")
+    const { from_date, to_date } = getLast7DaysRange();
+    let articles: any[] = [];
     try {
-      const res = await fetch(`/api/fetch-news?keyword=${encodeURIComponent(q)}${forceRefresh ? "&refresh=true" : ""}`)
+      const res = await fetch(`/api/fetch-news?keyword=${encodeURIComponent(q)}&from_date=${from_date}&to_date=${to_date}${forceRefresh ? "&refresh=true" : ""}`)
       const data = await res.json()
       if (data.articles) {
-        setFilteredNews(
-          data.articles.map((a: any, i: number) => ({
-            id: a.link || `news-${i + 1}`,
-            title: a.title,
-            description: a.description,
-            source: a.source,
-            date: a.date,
-            url: a.link,
-            category: activeTab,
-            tags: (a.category ? a.category.split(",") : keywords)
-          }))
-        )
-      } else {
-        setFilteredNews([])
+        articles = data.articles
       }
+      // If less than 3 news, try fallback with 'UPSC' and 'Current Affairs'
+      if ((!articles || articles.length < 3) && q !== 'UPSC,Current Affairs') {
+        const fallbackRes = await fetch(`/api/fetch-news?keyword=UPSC,Current Affairs&from_date=${from_date}&to_date=${to_date}${forceRefresh ? "&refresh=true" : ""}`)
+        const fallbackData = await fallbackRes.json()
+        if (fallbackData.articles) {
+          articles = fallbackData.articles
+        }
+      }
+      setFilteredNews(
+        (articles || []).slice(0, 4).map((a: any, i: number) => ({
+          id: a.link || `news-${i + 1}`,
+          title: a.title,
+          description: a.description,
+          source: a.source,
+          date: a.date,
+          url: a.link,
+          category: activeTab,
+          tags: (a.category ? a.category.split(",") : keywords)
+        }))
+      )
     } catch (e) {
       setFilteredNews([])
     }
@@ -167,10 +249,10 @@ export default function NewsPage() {
       const data = await res.json()
       if (res.ok) {
         setPrelimsQuestions(data.prelims || [])
-        setMainsQuestions((data.mains || []) as string[])
+        setMainsQuestions(Array.isArray(data.mains) ? data.mains.filter((q: any) => typeof q === "string") : [])
       } else {
         setPrelimsQuestions([])
-        setMainsQuestions([data.error || "Failed to generate questions."] as string[])
+        setMainsQuestions([data.error || "Failed to generate questions."])
       }
     } catch (err) {
       setPrelimsQuestions([])
@@ -387,9 +469,11 @@ export default function NewsPage() {
                         <li key={i} className="border rounded p-3 bg-muted">
                           <div className="font-medium mb-1">{i + 1}. {q.question}</div>
                           <ul className="ml-4 space-y-1">
-                            {Object.entries(q.options).map(([key, val]) => (
-                              <li key={key}><b>{key}.</b> {val}</li>
-                            ))}
+                            {q.options && typeof q.options === "object"
+                              ? Object.entries(q.options as Record<string, string>).map(([key, val]) => (
+                                  <li key={key}><b>{key}.</b> {val}</li>
+                                ))
+                              : null}
                           </ul>
                           <div className="mt-1 text-xs text-green-700">Answer: <b>{q.answer}</b></div>
                         </li>
@@ -399,11 +483,11 @@ export default function NewsPage() {
                 </div>
                 <div>
                   <h3 className="font-medium mb-2">Mains Questions</h3>
-                  {Array.isArray(mainsQuestions) && mainsQuestions.length === 0 ? (
+                  {mainsQuestions.length === 0 ? (
                     <div className="text-muted-foreground">No Mains questions generated.</div>
                   ) : (
                     <ul className="space-y-4 list-decimal pl-5">
-                      {Array.isArray(mainsQuestions) && (mainsQuestions as string[]).filter((q): q is string => typeof q === 'string').map((question, i) => (
+                      {mainsQuestions.map((question, i) => (
                         <li key={i}>{question}</li>
                       ))}
                     </ul>
