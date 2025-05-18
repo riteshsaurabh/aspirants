@@ -20,33 +20,21 @@ import { Pagination } from "@/components/pagination"
 import { Bookmark, ExternalLink, FileText, ThumbsDown, TagIcon } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
-// Mock data for news articles
-const mockNewsArticles = Array.from({ length: 50 }).map((_, i) => ({
-  id: `news-${i + 1}`,
-  title: `UPSC News Article ${i + 1}`,
-  description: `This is a sample news article about important UPSC topics. It covers various aspects of current affairs and exam preparation.`,
-  source: `The Hindu`,
-  date: new Date(2023, 11, 31 - (i % 30)).toLocaleDateString(),
-  url: `https://example.com/news/${i + 1}`,
-  category:
-    i % 5 === 0
-      ? "current-affairs"
-      : i % 5 === 1
-        ? "prelims"
-        : i % 5 === 2
-          ? "gs-1"
-          : i % 5 === 3
-            ? "gs-2"
-            : i % 5 === 4
-              ? "gs-3"
-              : "gs-4",
-  tags: [
-    "UPSC",
-    "Current Affairs",
-    i % 2 === 0 ? "Economy" : "Environment",
-    i % 3 === 0 ? "International Relations" : "Science & Technology",
-  ],
-}))
+// Keyword sets for each tab
+const KEYWORDS: { [key: string]: string[] } = {
+  all: ["UPSC", "India", "Current Affairs", "Parliament", "Supreme Court", "Economy", "Environment", "Science", "Technology"],
+  "current-affairs": ["Current Affairs", "UPSC", "National News", "International News", "Government", "Policy"],
+  prelims: ["UPSC Prelims", "General Studies", "Current Events", "Geography", "History"],
+  "gs-1": ["Indian Society", "History", "Art and Culture", "Geography"],
+  "gs-2": ["Polity", "Governance", "International Relations", "Constitution"],
+  "gs-3": ["Economy", "Environment", "Science and Tech", "Security"],
+  "gs-4": ["Ethics", "Integrity", "Aptitude", "Case Studies"]
+};
+
+function pickRandomKeywords(keywords: string[], count = 3): string[] {
+  const shuffled = [...keywords].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
+}
 
 interface NewsArticle {
   id: string
@@ -61,7 +49,7 @@ interface NewsArticle {
 
 export default function NewsPage() {
   const searchParams = useSearchParams()
-  const currentPage = Number(searchParams.get("page") || "1")
+  const currentPage = Number((searchParams && searchParams.get("page")) || "1")
   const [activeTab, setActiveTab] = useState<string>("all")
   const [filteredNews, setFilteredNews] = useState<NewsArticle[]>([])
   const [savedArticles, setSavedArticles] = useState<Set<string>>(new Set())
@@ -71,18 +59,52 @@ export default function NewsPage() {
   const [noteContent, setNoteContent] = useState<string>("")
   const [noteTags, setNoteTags] = useState<string>("")
   const [questionDialogOpen, setQuestionDialogOpen] = useState<boolean>(false)
-  const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
+  const [prelimsQuestions, setPrelimsQuestions] = useState<any[]>([])
+  const [mainsQuestions, setMainsQuestions] = useState<string[]>([])
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState<boolean>(false)
+  const [loading, setLoading] = useState<boolean>(false)
+  const [refreshing, setRefreshing] = useState<boolean>(false)
 
   const ITEMS_PER_PAGE = 10
 
-  useEffect(() => {
-    // Filter news based on active tab
-    if (activeTab === "all") {
-      setFilteredNews(mockNewsArticles)
-    } else {
-      setFilteredNews(mockNewsArticles.filter((article) => article.category === activeTab))
+  // Helper to get current keywords
+  const getCurrentKeywords = () => pickRandomKeywords(KEYWORDS[activeTab] || KEYWORDS.all, 3)
+
+  // Fetch news, with optional refresh
+  const fetchNews = async (forceRefresh = false) => {
+    setLoading(true)
+    if (forceRefresh) setRefreshing(true)
+    const keywords = getCurrentKeywords()
+    const q = keywords.join(",")
+    try {
+      const res = await fetch(`/api/fetch-news?keyword=${encodeURIComponent(q)}${forceRefresh ? "&refresh=true" : ""}`)
+      const data = await res.json()
+      if (data.articles) {
+        setFilteredNews(
+          data.articles.map((a: any, i: number) => ({
+            id: a.link || `news-${i + 1}`,
+            title: a.title,
+            description: a.description,
+            source: a.source,
+            date: a.date,
+            url: a.link,
+            category: activeTab,
+            tags: (a.category ? a.category.split(",") : keywords)
+          }))
+        )
+      } else {
+        setFilteredNews([])
+      }
+    } catch (e) {
+      setFilteredNews([])
     }
+    setLoading(false)
+    setRefreshing(false)
+  }
+
+  useEffect(() => {
+    fetchNews()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   const paginatedNews = filteredNews.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
@@ -131,7 +153,8 @@ export default function NewsPage() {
 
     const article = filteredNews.find((a) => a.id === id)
     if (!article) {
-      setGeneratedQuestions(["Article not found."])
+      setPrelimsQuestions([])
+      setMainsQuestions(["Article not found."])
       setIsGeneratingQuestions(false)
       return
     }
@@ -143,24 +166,38 @@ export default function NewsPage() {
       })
       const data = await res.json()
       if (res.ok) {
-        setGeneratedQuestions(data.questions)
+        setPrelimsQuestions(data.prelims || [])
+        setMainsQuestions((data.mains || []) as string[])
       } else {
-        setGeneratedQuestions([data.error || "Failed to generate questions."])
+        setPrelimsQuestions([])
+        setMainsQuestions([data.error || "Failed to generate questions."] as string[])
       }
     } catch (err) {
-      setGeneratedQuestions(["Network error."])
+      setPrelimsQuestions([])
+      setMainsQuestions(["Network error."])
     }
     setIsGeneratingQuestions(false)
+  }
+
+  const handleGenerateMoreQuestions = () => {
+    if (currentArticleId) generateQuestions(currentArticleId)
   }
 
   return (
     <div className="container py-8">
       <div className="flex flex-col space-y-6">
         <div className="flex flex-col space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">News & Current Affairs</h1>
-          <p className="text-muted-foreground">
-            Stay updated with the latest news and current affairs relevant to UPSC examination.
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">News & Current Affairs</h1>
+              <p className="text-muted-foreground">
+                Stay updated with the latest news and current affairs relevant to UPSC examination.
+              </p>
+            </div>
+            <Button onClick={() => fetchNews(true)} disabled={refreshing || loading} variant="outline">
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
         </div>
 
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -176,92 +213,98 @@ export default function NewsPage() {
 
           <TabsContent value={activeTab} className="mt-0">
             <div className="grid gap-6">
-              {paginatedNews.map((article) => (
-                <Card key={article.id} className={`${irrelevantArticles.has(article.id) ? "opacity-50" : ""}`}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{article.title}</CardTitle>
-                        <CardDescription className="flex items-center gap-2 mt-1">
-                          <span>{article.source}</span>
-                          <span>•</span>
-                          <span>{article.date}</span>
-                        </CardDescription>
-                      </div>
-                      <Badge variant="outline" className="capitalize">
-                        {article.category.replace(/-/g, " ")}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p>{article.description}</p>
-                    <div className="flex flex-wrap gap-2 mt-4">
-                      {article.tags.map((tag) => (
-                        <Badge key={tag} variant="secondary">
-                          {tag}
+              {loading ? (
+                <div>Loading news...</div>
+              ) : paginatedNews.length === 0 ? (
+                <div>No news found for these keywords.</div>
+              ) : (
+                paginatedNews.map((article) => (
+                  <Card key={article.id} className={`${irrelevantArticles.has(article.id) ? "opacity-50" : ""}`}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle>{article.title}</CardTitle>
+                          <CardDescription className="flex items-center gap-2 mt-1">
+                            <span>{article.source}</span>
+                            <span>•</span>
+                            <span>{article.date}</span>
+                          </CardDescription>
+                        </div>
+                        <Badge variant="outline" className="capitalize">
+                          {article.category.replace(/-/g, " ")}
                         </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                  <CardFooter className="flex justify-between">
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={article.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Read More
-                        </a>
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => openNoteDialog(article.id)}>
-                        <FileText className="h-4 w-4 mr-2" />
-                        Add Notes
-                      </Button>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => generateQuestions(article.id)}
-                        title="Generate Questions"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="lucide lucide-help-circle"
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p>{article.description}</p>
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {article.tags.map((tag) => (
+                          <Badge key={tag} variant="secondary">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                    <CardFooter className="flex justify-between">
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" asChild>
+                          <a href={article.url} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Read More
+                          </a>
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => openNoteDialog(article.id)}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          Add Notes
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => generateQuestions(article.id)}
+                          title="Generate Questions"
                         >
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                          <path d="M12 17h.01" />
-                        </svg>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => toggleSaveArticle(article.id)}
-                        className={savedArticles.has(article.id) ? "text-primary" : ""}
-                        title="Save for later"
-                      >
-                        <Bookmark className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => toggleIrrelevantArticle(article.id)}
-                        className={irrelevantArticles.has(article.id) ? "text-destructive" : ""}
-                        title="Mark as irrelevant"
-                      >
-                        <ThumbsDown className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardFooter>
-                </Card>
-              ))}
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="lucide lucide-help-circle"
+                          >
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                            <path d="M12 17h.01" />
+                          </svg>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => toggleSaveArticle(article.id)}
+                          className={savedArticles.has(article.id) ? "text-primary" : ""}
+                          title="Save for later"
+                        >
+                          <Bookmark className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => toggleIrrelevantArticle(article.id)}
+                          className={irrelevantArticles.has(article.id) ? "text-destructive" : ""}
+                          title="Mark as irrelevant"
+                        >
+                          <ThumbsDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardFooter>
+                  </Card>
+                ))
+              )}
             </div>
 
             <Pagination totalItems={filteredNews.length} itemsPerPage={ITEMS_PER_PAGE} currentPage={currentPage} />
@@ -307,12 +350,19 @@ export default function NewsPage() {
 
       {/* Question Generation Dialog */}
       <Dialog open={questionDialogOpen} onOpenChange={setQuestionDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
             <DialogTitle>Generated Questions</DialogTitle>
-            <DialogDescription>UPSC-level questions generated from this article.</DialogDescription>
+            <DialogDescription>
+              UPSC-level questions generated from this article.
+              {currentArticleId && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Tags: {filteredNews.find(a => a.id === currentArticleId)?.tags?.join(", ")}
+                </div>
+              )}
+            </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-8">
             {isGeneratingQuestions ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-center space-x-2">
@@ -326,28 +376,46 @@ export default function NewsPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <h3 className="font-medium mb-2">Prelims Questions</h3>
-                    <ul className="space-y-2 list-disc pl-5">
-                      <li>Which of the following statements is correct regarding {currentArticleId?.split("-")[1]}?</li>
-                      <li>Consider the following statements and select the correct option:</li>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="font-medium mb-2">Prelims Questions</h3>
+                  {prelimsQuestions.length === 0 ? (
+                    <div className="text-muted-foreground">No Prelims questions generated.</div>
+                  ) : (
+                    <ul className="space-y-4">
+                      {prelimsQuestions.map((q, i) => (
+                        <li key={i} className="border rounded p-3 bg-muted">
+                          <div className="font-medium mb-1">{i + 1}. {q.question}</div>
+                          <ul className="ml-4 space-y-1">
+                            {Object.entries(q.options).map(([key, val]) => (
+                              <li key={key}><b>{key}.</b> {val}</li>
+                            ))}
+                          </ul>
+                          <div className="mt-1 text-xs text-green-700">Answer: <b>{q.answer}</b></div>
+                        </li>
+                      ))}
                     </ul>
-                  </div>
-                  <div>
-                    <h3 className="font-medium mb-2">Mains Questions</h3>
-                    <ul className="space-y-2 list-disc pl-5">
-                      {generatedQuestions.map((question, i) => (
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-medium mb-2">Mains Questions</h3>
+                  {Array.isArray(mainsQuestions) && mainsQuestions.length === 0 ? (
+                    <div className="text-muted-foreground">No Mains questions generated.</div>
+                  ) : (
+                    <ul className="space-y-4 list-decimal pl-5">
+                      {Array.isArray(mainsQuestions) && (mainsQuestions as string[]).filter((q): q is string => typeof q === 'string').map((question, i) => (
                         <li key={i}>{question}</li>
                       ))}
                     </ul>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex flex-col md:flex-row md:justify-between gap-2">
+            <Button variant="outline" onClick={handleGenerateMoreQuestions} disabled={isGeneratingQuestions}>
+              {isGeneratingQuestions ? "Generating..." : "Generate More Questions"}
+            </Button>
             <Button onClick={() => setQuestionDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>

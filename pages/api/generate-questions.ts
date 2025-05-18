@@ -11,10 +11,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const prompt = `
 You are an expert UPSC question setter.
-Generate 5 UPSC-style questions based on the following news article:
-"${article}"
-Questions should be analytical, relevant, and exam-appropriate.
-  `.trim()
+Generate 2 UPSC Prelims MCQ questions and 3 UPSC Mains analytical questions based on the following article:
+"""
+${article}
+"""
+For each Prelims question, provide:
+- The question
+- Four options (A, B, C, D)
+- The correct answer (e.g., "Answer: B")
+For each Mains question, make them analytical and exam-appropriate.
+Format your response as:
+Prelims Questions:
+1. <question>
+A. <option1>
+B. <option2>
+C. <option3>
+D. <option4>
+Answer: <A/B/C/D>
+...
+Mains Questions:
+1. <question>
+2. <question>
+3. <question>
+`.trim()
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -25,7 +44,7 @@ Questions should be analytical, relevant, and exam-appropriate.
     body: JSON.stringify({
       model: 'gpt-3.5-turbo',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 512,
+      max_tokens: 700,
       temperature: 0.7,
     }),
   })
@@ -36,7 +55,44 @@ Questions should be analytical, relevant, and exam-appropriate.
   }
 
   const data = await response.json()
-  const questions = data.choices?.[0]?.message?.content?.split('\n').filter(Boolean) || []
+  const content = data.choices?.[0]?.message?.content || ''
 
-  res.status(200).json({ questions })
+  // Parse Prelims and Mains questions
+  const prelimsMatch = content.match(/Prelims Questions:([\s\S]*?)(Mains Questions:|$)/)
+  const mainsMatch = content.match(/Mains Questions:([\s\S]*)/)
+
+  let prelims: Array<{ question: string, options: Record<string, string>, answer: string }> = []
+  let mains: string[] = []
+
+  if (prelimsMatch) {
+    // Split by question number
+    prelims = prelimsMatch[1]
+      .split(/\n\d+\. /)
+      .map((q: string) => q.trim())
+      .filter((q: string) => Boolean(q))
+      .map((q: string) => {
+        // Extract question, options, and answer
+        const [question, ...rest] = q.split('\n')
+        const options: Record<string, string> = {}
+        let answer = ''
+        rest.forEach((line: string) => {
+          if (/^[A-D]\. /.test(line)) {
+            const key = line[0]
+            options[key] = line.slice(3).trim()
+          } else if (/^Answer: /.test(line)) {
+            answer = line.replace('Answer: ', '').trim()
+          }
+        })
+        return { question: question?.replace(/^\d+\.\s*/, ''), options, answer }
+      })
+  }
+
+  if (mainsMatch) {
+    mains = mainsMatch[1]
+      .split(/\n\d+\. /)
+      .map((q: string) => q.trim().replace(/^\d+\.\s*/, ''))
+      .filter((q: string) => Boolean(q))
+  }
+
+  res.status(200).json({ prelims, mains })
 } 

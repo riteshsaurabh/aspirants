@@ -59,7 +59,7 @@ interface Flashcard {
 
 export default function PublicFlashcardsPage() {
   const searchParams = useSearchParams()
-  const currentPage = Number(searchParams.get("page") || "1")
+  const currentPage = Number((searchParams && searchParams.get("page")) || "1")
   const [activeTab, setActiveTab] = useState<string>("all")
   const [filteredFlashcards, setFilteredFlashcards] = useState<Flashcard[]>([])
   const [savedFlashcards, setSavedFlashcards] = useState<Set<string>>(new Set())
@@ -68,7 +68,8 @@ export default function PublicFlashcardsPage() {
   const [currentCardIndex, setCurrentCardIndex] = useState<number>(0)
   const [isFlipped, setIsFlipped] = useState<boolean>(false)
   const [questionDialogOpen, setQuestionDialogOpen] = useState<boolean>(false)
-  const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
+  const [prelimsQuestions, setPrelimsQuestions] = useState<any[]>([])
+  const [mainsQuestions, setMainsQuestions] = useState<string[]>([])
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState<boolean>(false)
 
   const ITEMS_PER_PAGE = 9
@@ -162,14 +163,21 @@ export default function PublicFlashcardsPage() {
       })
       const data = await res.json()
       if (res.ok) {
-        setGeneratedQuestions(data.questions)
+        setPrelimsQuestions(data.prelims || [])
+        setMainsQuestions(data.mains || [])
       } else {
-        setGeneratedQuestions([data.error || "Failed to generate questions."])
+        setPrelimsQuestions([])
+        setMainsQuestions([data.error || "Failed to generate questions."])
       }
     } catch (err) {
-      setGeneratedQuestions(["Network error."])
+      setPrelimsQuestions([])
+      setMainsQuestions(["Network error."])
     }
     setIsGeneratingQuestions(false)
+  }
+
+  const handleGenerateMoreQuestions = () => {
+    if (currentFlashcardSet) generateQuestions(currentFlashcardSet)
   }
 
   return (
@@ -266,16 +274,53 @@ export default function PublicFlashcardsPage() {
           </DialogHeader>
           <div className="py-4">
             <div
-              className="relative w-full h-[300px] cursor-pointer perspective-1000"
+              style={{ perspective: 1000 }}
+              className="w-full h-[300px] cursor-pointer flex items-center justify-center"
               onClick={() => setIsFlipped(!isFlipped)}
             >
               <div
-                className={`absolute w-full h-full transition-transform duration-500 transform-style-3d ${isFlipped ? "rotate-y-180" : ""}`}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  position: 'relative',
+                  transition: 'transform 0.6s',
+                  transformStyle: 'preserve-3d',
+                  transform: isFlipped ? 'rotateY(180deg)' : 'none',
+                }}
               >
-                <div className="absolute w-full h-full backface-hidden bg-card border rounded-lg p-6 flex items-center justify-center">
+                {/* Front */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    width: '100%',
+                    height: '100%',
+                    backfaceVisibility: 'hidden',
+                    background: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 8,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  }}
+                >
                   <p className="text-xl font-medium text-center">{mockFlashcardContent[currentCardIndex].front}</p>
                 </div>
-                <div className="absolute w-full h-full backface-hidden bg-card border rounded-lg p-6 flex items-center justify-center rotate-y-180 overflow-auto">
+                {/* Back */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    width: '100%',
+                    height: '100%',
+                    backfaceVisibility: 'hidden',
+                    background: '#f8f8f8',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 8,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    transform: 'rotateY(180deg)',
+                  }}
+                >
                   <p className="text-base">{mockFlashcardContent[currentCardIndex].back}</p>
                 </div>
               </div>
@@ -316,12 +361,19 @@ export default function PublicFlashcardsPage() {
 
       {/* Question Generation Dialog */}
       <Dialog open={questionDialogOpen} onOpenChange={setQuestionDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
             <DialogTitle>Generated Questions</DialogTitle>
-            <DialogDescription>UPSC-level questions based on {currentFlashcardSet?.title}.</DialogDescription>
+            <DialogDescription>
+              UPSC-level questions based on {currentFlashcardSet?.title}.
+            </DialogDescription>
+            {currentFlashcardSet?.tags && (
+              <div className="mt-2 text-xs text-muted-foreground">
+                Tags: {currentFlashcardSet.tags.join(", ")}
+              </div>
+            )}
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-8">
             {isGeneratingQuestions ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-center space-x-2">
@@ -335,21 +387,48 @@ export default function PublicFlashcardsPage() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="grid gap-4">
-                  <div>
-                    <h3 className="font-medium mb-2">Mains Questions</h3>
-                    <ul className="space-y-3 list-decimal pl-5">
-                      {generatedQuestions.map((question, i) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="font-medium mb-2">Prelims Questions</h3>
+                  {prelimsQuestions.length === 0 ? (
+                    <div className="text-muted-foreground">No Prelims questions generated.</div>
+                  ) : (
+                    <ul className="space-y-4">
+                      {prelimsQuestions.map((q, i) => (
+                        <li key={i} className="border rounded p-3 bg-muted">
+                          <div className="font-medium mb-1">{i + 1}. {q.question}</div>
+                          <ul className="ml-4 space-y-1">
+                            {Object.entries(q.options)
+                              .filter(([_key, val]) => typeof val === 'string')
+                              .map(([key, val]) => (
+                                <li key={key}><b>{key}.</b> {val as string}</li>
+                              ))}
+                          </ul>
+                          <div className="mt-1 text-xs text-green-700">Answer: <b>{q.answer}</b></div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <h3 className="font-medium mb-2">Mains Questions</h3>
+                  {mainsQuestions.length === 0 ? (
+                    <div className="text-muted-foreground">No Mains questions generated.</div>
+                  ) : (
+                    <ul className="space-y-4 list-decimal pl-5">
+                      {mainsQuestions.map((question: string, i: number) => (
                         <li key={i}>{question}</li>
                       ))}
                     </ul>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex flex-col md:flex-row md:justify-between gap-2">
+            <Button variant="outline" onClick={handleGenerateMoreQuestions} disabled={isGeneratingQuestions}>
+              {isGeneratingQuestions ? "Generating..." : "Generate More Questions"}
+            </Button>
             <Button onClick={() => setQuestionDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
