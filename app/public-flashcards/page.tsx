@@ -149,23 +149,27 @@ export default function PublicFlashcardsPage() {
     }
   }
 
-  const generateQuestions = (flashcard: Flashcard) => {
+  const generateQuestions = async (flashcard: Flashcard) => {
     setCurrentFlashcardSet(flashcard)
     setIsGeneratingQuestions(true)
     setQuestionDialogOpen(true)
 
-    // Simulate API call to generate questions
-    setTimeout(() => {
-      const questions = [
-        `Explain the significance of ${flashcard.title.split(" ").slice(0, -1).join(" ")} in the context of UPSC examination.`,
-        `Critically analyze the role of ${flashcard.title.split(" ").slice(0, -1).join(" ")} in India's development.`,
-        `Discuss the challenges and opportunities in ${flashcard.title.split(" ").slice(0, -1).join(" ")}.`,
-        `How has ${flashcard.title.split(" ").slice(0, -1).join(" ")} evolved in the Indian context?`,
-        `What are the key aspects of ${flashcard.title.split(" ").slice(0, -1).join(" ")} that UPSC aspirants should focus on?`,
-      ]
-      setGeneratedQuestions(questions)
-      setIsGeneratingQuestions(false)
-    }, 2000)
+    try {
+      const res = await fetch("/api/generate-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ article: flashcard.description }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setGeneratedQuestions(data.questions)
+      } else {
+        setGeneratedQuestions([data.error || "Failed to generate questions."])
+      }
+    } catch (err) {
+      setGeneratedQuestions(["Network error."])
+    }
+    setIsGeneratingQuestions(false)
   }
 
   return (

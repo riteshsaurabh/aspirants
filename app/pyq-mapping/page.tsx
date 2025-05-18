@@ -82,6 +82,9 @@ export default function PYQMappingPage() {
   const [noteDialogOpen, setNoteDialogOpen] = useState<boolean>(false)
   const [noteContent, setNoteContent] = useState<string>("")
   const [noteTags, setNoteTags] = useState<string>("")
+  const [questionDialogOpen, setQuestionDialogOpen] = useState(false)
+  const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([])
+  const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false)
   
   const ITEMS_PER_PAGE = 10
   
@@ -162,6 +165,28 @@ export default function PYQMappingPage() {
     setNoteTags("")
   }
   
+  const generateQuestions = async (pyq: PYQ) => {
+    setCurrentPYQ(pyq)
+    setIsGeneratingQuestions(true)
+    setQuestionDialogOpen(true)
+    try {
+      const res = await fetch("/api/generate-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ article: pyq.question }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setGeneratedQuestions(data.questions)
+      } else {
+        setGeneratedQuestions([data.error || "Failed to generate questions."])
+      }
+    } catch (err) {
+      setGeneratedQuestions(["Network error."])
+    }
+    setIsGeneratingQuestions(false)
+  }
+  
   return (
     <div className="container py-8">
       <div className="flex flex-col space-y-6">
@@ -219,6 +244,9 @@ export default function PYQMappingPage() {
                       <Button variant="outline" size="sm" onClick={() => openNoteDialog(pyq)}>
                         <FileText className="h-4 w-4 mr-2" />
                         Add Notes
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => generateQuestions(pyq)}>
+                        Generate Questions
                       </Button>
                     </div>
                     <div className="flex gap-2">
@@ -286,4 +314,68 @@ export default function PYQMappingPage() {
       </Dialog>
       
       {/* Note Dialog */}
-      <Dialog open={noteDialogOpen}\
+      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Add Notes</DialogTitle>
+            <DialogDescription>
+              Add notes for the question: {currentPYQ?.question}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <textarea
+              value={noteContent}
+              onChange={(e) => setNoteContent(e.target.value)}
+              placeholder="Enter your notes here..."
+              className="w-full h-32 p-2 border rounded-md"
+            />
+            <div className="mt-4 flex flex-wrap gap-2">
+              {noteTags.split(',').map((tag) => (
+                <Badge key={tag} variant="secondary">{tag.trim()}</Badge>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <Button onClick={saveNote}>Save</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Question Dialog */}
+      <Dialog open={questionDialogOpen} onOpenChange={setQuestionDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Generated Questions</DialogTitle>
+            <DialogDescription>UPSC-level questions based on this PYQ.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {isGeneratingQuestions ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                  <p>Generating questions...</p>
+                </div>
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-12 w-full bg-gray-200 rounded animate-pulse" />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <ul className="space-y-3 list-decimal pl-5">
+                  {generatedQuestions.map((question, i) => (
+                    <li key={i}>{question}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setQuestionDialogOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

@@ -124,24 +124,33 @@ export default function NewsPage() {
     setNoteTags("")
   }
 
-  const generateQuestions = (id: string) => {
+  const generateQuestions = async (id: string) => {
     setCurrentArticleId(id)
     setIsGeneratingQuestions(true)
     setQuestionDialogOpen(true)
 
-    // Simulate API call to generate questions
-    setTimeout(() => {
-      const article = mockNewsArticles.find((a) => a.id === id)
-      const questions = [
-        `What are the key implications of ${article?.title.split(" ").slice(2).join(" ")} on India's foreign policy?`,
-        `How does ${article?.title.split(" ").slice(2).join(" ")} impact the economic scenario in India?`,
-        `Critically analyze the government's approach towards ${article?.title.split(" ").slice(2).join(" ")}.`,
-        `Discuss the historical context of ${article?.title.split(" ").slice(2).join(" ")} and its evolution.`,
-        `What are the ethical considerations related to ${article?.title.split(" ").slice(2).join(" ")}?`,
-      ]
-      setGeneratedQuestions(questions)
+    const article = filteredNews.find((a) => a.id === id)
+    if (!article) {
+      setGeneratedQuestions(["Article not found."])
       setIsGeneratingQuestions(false)
-    }, 2000)
+      return
+    }
+    try {
+      const res = await fetch("/api/generate-questions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ article: article.description }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setGeneratedQuestions(data.questions)
+      } else {
+        setGeneratedQuestions([data.error || "Failed to generate questions."])
+      }
+    } catch (err) {
+      setGeneratedQuestions(["Network error."])
+    }
+    setIsGeneratingQuestions(false)
   }
 
   return (
