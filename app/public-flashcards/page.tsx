@@ -71,6 +71,9 @@ export default function PublicFlashcardsPage() {
   const [prelimsQuestions, setPrelimsQuestions] = useState<any[]>([])
   const [mainsQuestions, setMainsQuestions] = useState<string[]>([])
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState<boolean>(false)
+  const [topic, setTopic] = useState<string>("")
+  const [generatedFlashcards, setGeneratedFlashcards] = useState<any[]>([])
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState<boolean>(false)
 
   const ITEMS_PER_PAGE = 9
 
@@ -180,12 +183,51 @@ export default function PublicFlashcardsPage() {
     if (currentFlashcardSet) generateQuestions(currentFlashcardSet)
   }
 
+  const handleGenerateFlashcards = async () => {
+    if (!topic.trim()) return;
+    setIsGeneratingFlashcards(true);
+    setGeneratedFlashcards([]);
+    try {
+      const res = await fetch("/api/generate-flashcards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await res.json();
+      if (res.ok && data.flashcards) {
+        setGeneratedFlashcards(data.flashcards);
+      } else {
+        setGeneratedFlashcards([]);
+      }
+    } catch (err) {
+      setGeneratedFlashcards([]);
+    }
+    setIsGeneratingFlashcards(false);
+  }
+
   return (
     <div className="container py-8">
       <div className="flex flex-col space-y-6">
         <div className="flex flex-col space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Public Flashcards</h1>
           <p className="text-muted-foreground">Explore and study from our collection of UPSC-focused flashcards.</p>
+          <div className="flex gap-2 mt-2">
+            <input
+              type="text"
+              className="border rounded px-3 py-1 w-64"
+              placeholder="Enter topic (e.g. Indian Constitution)"
+              value={topic}
+              onChange={e => setTopic(e.target.value)}
+            />
+            <Button onClick={handleGenerateFlashcards} disabled={isGeneratingFlashcards || !topic.trim()}>
+              {isGeneratingFlashcards ? "Generating..." : "Generate Flashcards"}
+            </Button>
+            {generatedFlashcards.length > 0 && (
+              <Button variant="outline" onClick={() => setGeneratedFlashcards([])}>
+                Clear
+              </Button>
+            )}
+          </div>
         </div>
 
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -201,57 +243,75 @@ export default function PublicFlashcardsPage() {
 
           <TabsContent value={activeTab} className="mt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedFlashcards.map((flashcard) => (
-                <Card key={flashcard.id} className="flex flex-col h-full">
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-xl">{flashcard.title}</CardTitle>
-                      <Badge variant="outline" className="capitalize">
-                        {flashcard.category.replace(/-/g, " ")}
-                      </Badge>
-                    </div>
-                    <CardDescription className="flex items-center gap-2 mt-1">
-                      <span>{flashcard.cardCount} cards</span>
-                      <span>•</span>
-                      <span>By {flashcard.createdBy}</span>
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex-grow">
-                    <p className="text-sm">{flashcard.description}</p>
-                    <div className="flex flex-wrap gap-2 mt-4">
-                      {flashcard.tags.map((tag) => (
-                        <Badge key={tag} variant="secondary">
-                          {tag}
+              {isGeneratingFlashcards ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <Card key={i} className="h-40 animate-pulse bg-muted" />
+                ))
+              ) : generatedFlashcards.length > 0 ? (
+                generatedFlashcards.map((fc, i) => (
+                  <Card key={i} className="flex flex-col h-full">
+                    <CardHeader>
+                      <CardTitle className="text-xl">Flashcard {i + 1}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-2 font-semibold">Q: {fc.front}</div>
+                      <div className="text-muted-foreground">A: {fc.back}</div>
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                paginatedFlashcards.map((flashcard) => (
+                  <Card key={flashcard.id} className="flex flex-col h-full">
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <CardTitle className="text-xl">{flashcard.title}</CardTitle>
+                        <Badge variant="outline" className="capitalize">
+                          {flashcard.category.replace(/-/g, " ")}
                         </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                  <CardFooter className="flex justify-between">
-                    <div className="flex gap-2">
-                      <Button variant="default" size="sm" onClick={() => openStudyDialog(flashcard)}>
-                        Study Now
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => generateQuestions(flashcard)}>
-                        Generate Questions
-                      </Button>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => toggleSaveFlashcard(flashcard.id)}
-                        className={savedFlashcards.has(flashcard.id) ? "text-primary" : ""}
-                        title="Save flashcard"
-                      >
-                        <Bookmark className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" title="Share flashcard">
-                        <Share2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardFooter>
-                </Card>
-              ))}
+                      </div>
+                      <CardDescription className="flex items-center gap-2 mt-1">
+                        <span>{flashcard.cardCount} cards</span>
+                        <span>•</span>
+                        <span>By {flashcard.createdBy}</span>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex-grow">
+                      <p className="text-sm">{flashcard.description}</p>
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {flashcard.tags.map((tag) => (
+                          <Badge key={tag} variant="secondary">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                    <CardFooter className="flex justify-between">
+                      <div className="flex gap-2">
+                        <Button variant="default" size="sm" onClick={() => openStudyDialog(flashcard)}>
+                          Study Now
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => generateQuestions(flashcard)}>
+                          Generate Questions
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => toggleSaveFlashcard(flashcard.id)}
+                          className={savedFlashcards.has(flashcard.id) ? "text-primary" : ""}
+                          title="Save flashcard"
+                        >
+                          <Bookmark className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" title="Share flashcard">
+                          <Share2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardFooter>
+                  </Card>
+                ))
+              )}
             </div>
 
             <Pagination
